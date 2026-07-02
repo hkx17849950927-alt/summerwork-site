@@ -1,0 +1,29 @@
+{
+    "voice":  "Mandarin",
+    "tracks":  [
+                   {
+                       "file":  "assets/audio/chapter-01.mp3",
+                       "duration":  2700.024
+                   },
+                   {
+                       "file":  "assets/audio/chapter-02.mp3",
+                       "duration":  2687.664
+                   },
+                   {
+                       "file":  "assets/audio/chapter-03.mp3",
+                       "duration":  2700.024
+                   },
+                   {
+                       "file":  "assets/audio/chapter-04.mp3",
+                       "duration":  2781.192
+                   },
+                   {
+                       "file":  "assets/audio/chapter-05.mp3",
+                       "duration":  2700.024
+                   },
+                   {
+                       "file":  "assets/audio/chapter-06.mp3",
+                       "duration":  2397.264
+                   }
+               ]
+}
