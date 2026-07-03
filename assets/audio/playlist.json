@@ -1,29 +1,30 @@
 {
-    "voice":  "Mandarin",
-    "tracks":  [
-                   {
-                       "file":  "assets/audio/chapter-01.mp3",
-                       "duration":  2700.024
-                   },
-                   {
-                       "file":  "assets/audio/chapter-02.mp3",
-                       "duration":  2687.664
-                   },
-                   {
-                       "file":  "assets/audio/chapter-03.mp3",
-                       "duration":  2700.024
-                   },
-                   {
-                       "file":  "assets/audio/chapter-04.mp3",
-                       "duration":  2781.192
-                   },
-                   {
-                       "file":  "assets/audio/chapter-05.mp3",
-                       "duration":  2700.024
-                   },
-                   {
-                       "file":  "assets/audio/chapter-06.mp3",
-                       "duration":  2397.264
-                   }
-               ]
+  "title": "为谁辛苦为谁忙",
+  "voice": "本人声音",
+  "tracks": [
+    {
+      "file": "assets/audio/chapter-01.mp3",
+      "duration": 3463.36
+    },
+    {
+      "file": "assets/audio/chapter-02.mp3",
+      "duration": 3567.651
+    },
+    {
+      "file": "assets/audio/chapter-03.mp3",
+      "duration": 3564.856
+    },
+    {
+      "file": "assets/audio/chapter-04.mp3",
+      "duration": 3569.595
+    },
+    {
+      "file": "assets/audio/chapter-05.mp3",
+      "duration": 3556.723
+    },
+    {
+      "file": "assets/audio/chapter-06.mp3",
+      "duration": 3592.325
+    }
+  ]
 }

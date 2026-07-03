@@ -3,13 +3,14 @@ const STORAGE_KEY = "summerwork-reader-state-v1";
 const BOOK_CACHE_KEY = "summerwork-book-text-v1";
 const VOICE_ENDPOINT = window.VOICE_CLONE_ENDPOINT || "";
 const AUDIO_TRACKS = [
-  { file: "assets/audio/chapter-01.mp3", duration: 2700.024 },
-  { file: "assets/audio/chapter-02.mp3", duration: 2687.664 },
-  { file: "assets/audio/chapter-03.mp3", duration: 2700.024 },
-  { file: "assets/audio/chapter-04.mp3", duration: 2781.192 },
-  { file: "assets/audio/chapter-05.mp3", duration: 2700.024 },
-  { file: "assets/audio/chapter-06.mp3", duration: 2397.264 },
+  { file: "assets/audio/chapter-01.mp3", duration: 3463.36 },
+  { file: "assets/audio/chapter-02.mp3", duration: 3567.651 },
+  { file: "assets/audio/chapter-03.mp3", duration: 3564.856 },
+  { file: "assets/audio/chapter-04.mp3", duration: 3569.595 },
+  { file: "assets/audio/chapter-05.mp3", duration: 3556.723 },
+  { file: "assets/audio/chapter-06.mp3", duration: 3592.325 },
 ];
+const BOOK_SECTIONS = window.BOOK_SECTIONS || [];
 
 const state = {
   chunks: [],
@@ -27,6 +28,7 @@ const state = {
   queueNextIndex: 0,
   audioTrackIndex: 0,
   audioTime: 0,
+  pendingAudioTime: null,
   audioMode: true,
 };
 
@@ -43,6 +45,39 @@ const elements = {
   cloneNotice: $("cloneNotice"), toast: $("toast")
 };
 elements.bookAudio = $("bookAudio");
+elements.seekSlider = $("seekSlider");
+elements.sectionMarkers = $("sectionMarkers");
+elements.sectionSelect = $("sectionSelect");
+
+const totalAudioDuration = () => AUDIO_TRACKS.reduce((sum, track) => sum + track.duration, 0);
+
+function currentSectionAt(time) {
+  let current = BOOK_SECTIONS[0];
+  for (const section of BOOK_SECTIONS) {
+    if (section.time > time) break;
+    current = section;
+  }
+  return current;
+}
+
+function renderBookSections() {
+  const total = totalAudioDuration();
+  BOOK_SECTIONS.forEach((section, index) => {
+    const option = document.createElement("option");
+    option.value = String(index);
+    option.textContent = `${section.chapter ? "" : "　"}${section.title}`;
+    elements.sectionSelect.append(option);
+
+    const marker = document.createElement("button");
+    marker.type = "button";
+    marker.className = `section-marker${section.chapter ? " chapter" : ""}`;
+    marker.style.left = `${(section.time / total) * 100}%`;
+    marker.title = section.title;
+    marker.setAttribute("aria-label", `跳转到${section.title}`);
+    marker.dataset.sectionIndex = String(index);
+    elements.sectionMarkers.append(marker);
+  });
+}
 
 function toast(message) {
   elements.toast.textContent = message;
@@ -75,23 +110,66 @@ function saveState() {
 
 function loadAudioTrack(restoreTime = 0) {
   const track = AUDIO_TRACKS[state.audioTrackIndex];
-  elements.bookAudio.src = track.file;
-  elements.bookAudio.playbackRate = state.rate;
-  elements.bookAudio.addEventListener("loadedmetadata", () => {
-    if (restoreTime > 0 && restoreTime < elements.bookAudio.duration) elements.bookAudio.currentTime = restoreTime;
-    updateAudioProgress();
-  }, { once: true });
+  state.pendingAudioTime = restoreTime > 0 ? restoreTime : null;
+  return new Promise((resolve) => {
+    let finished = false;
+    const restorePosition = () => {
+      if (finished || !elements.bookAudio.getAttribute("src")?.startsWith(track.file)) return;
+      finished = true;
+      elements.bookAudio.removeEventListener("loadedmetadata", restorePosition);
+      clearTimeout(fallbackTimer);
+      if (restoreTime > 0 && Number.isFinite(elements.bookAudio.duration) && restoreTime < elements.bookAudio.duration) {
+        elements.bookAudio.currentTime = restoreTime;
+        state.audioTime = restoreTime;
+        if (Math.abs(elements.bookAudio.currentTime - restoreTime) < 2) state.pendingAudioTime = null;
+      }
+      elements.bookAudio.playbackRate = state.rate;
+      updateAudioProgress();
+      resolve();
+    };
+    elements.bookAudio.addEventListener("loadedmetadata", restorePosition);
+    elements.bookAudio.src = track.file;
+    elements.bookAudio.load();
+    const fallbackTimer = setTimeout(restorePosition, 3000);
+    if (elements.bookAudio.readyState >= 1) restorePosition();
+  });
 }
 
 function updateAudioProgress() {
-  const total = AUDIO_TRACKS.reduce((sum, track) => sum + track.duration, 0);
+  const total = totalAudioDuration();
   const completed = AUDIO_TRACKS.slice(0, state.audioTrackIndex).reduce((sum, track) => sum + track.duration, 0);
-  const current = Number.isFinite(elements.bookAudio.currentTime) ? elements.bookAudio.currentTime : state.audioTime;
+  const current = state.pendingAudioTime ?? (Number.isFinite(elements.bookAudio.currentTime) ? elements.bookAudio.currentTime : state.audioTime);
   const percent = Math.min(100, Math.round(((completed + current) / total) * 100));
   elements.progressFill.style.width = `${percent}%`;
   elements.progressText.textContent = `${percent}%`;
   elements.progressTrack.setAttribute("aria-valuenow", String(percent));
-  elements.excerpt.textContent = `普通话有声书 · 第 ${state.audioTrackIndex + 1} 部分，共 ${AUDIO_TRACKS.length} 部分`;
+  if (!elements.seekSlider.matches(":active")) elements.seekSlider.value = String(Math.round(((completed + current) / total) * 1000));
+  const absoluteTime = completed + current;
+  const section = currentSectionAt(absoluteTime);
+  if (section) {
+    const sectionIndex = BOOK_SECTIONS.indexOf(section);
+    elements.excerpt.textContent = `正在听：${section.title}`;
+    if (elements.sectionSelect.value !== String(sectionIndex)) elements.sectionSelect.value = String(sectionIndex);
+  }
+}
+
+async function seekAudio(value, playAfterSeek = false) {
+  const total = totalAudioDuration();
+  let target = (Number(value) / 1000) * total;
+  let trackIndex = 0;
+  while (trackIndex < AUDIO_TRACKS.length - 1 && target >= AUDIO_TRACKS[trackIndex].duration) {
+    target -= AUDIO_TRACKS[trackIndex].duration;
+    trackIndex += 1;
+  }
+  const resume = state.speaking || playAfterSeek;
+  state.audioTrackIndex = trackIndex;
+  state.audioTime = target;
+  const trackReady = loadAudioTrack(target);
+  const playbackStarted = resume ? startAudio() : null;
+  await trackReady;
+  saveState();
+  updateAudioProgress();
+  if (playbackStarted) await playbackStarted;
 }
 
 async function startAudio() {
@@ -101,11 +179,14 @@ async function startAudio() {
     await elements.bookAudio.play();
     elements.listenLabel.textContent = "暂停听读";
     elements.listenIcon.textContent = "❚❚";
-    elements.playerTitle.textContent = "正在播放普通话有声书";
+  elements.playerTitle.textContent = "正在播放我的声音有声书";
     if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
   } catch {
     state.speaking = false;
-    toast("请再次点击播放按钮开始听读");
+    elements.listenLabel.textContent = "播放所选目录";
+    elements.listenIcon.textContent = "▶";
+    elements.playerTitle.textContent = "目录已定位，点击播放";
+    toast("浏览器拦截了自动播放，请点击“播放所选目录”");
   }
 }
 
@@ -346,10 +427,11 @@ async function createCustomVoice() {
 restoreState();
 populateVoices();
 speechSynthesis.onvoiceschanged = populateVoices;
+renderBookSections();
 
 loadAudioTrack(state.audioTime);
 elements.listenButton.disabled = false;
-elements.playerTitle.textContent = state.audioTime || state.audioTrackIndex ? "继续上次的阅读" : "普通话有声书已准备好";
+  elements.playerTitle.textContent = state.audioTime || state.audioTrackIndex ? "继续上次的阅读" : "我的声音有声书已准备好";
 updateAudioProgress();
 
 if ("mediaSession" in navigator) {
@@ -359,7 +441,7 @@ if ("mediaSession" in navigator) {
 }
 
 elements.listenButton.addEventListener("click", () => state.speaking ? pauseAudio() : startAudio());
-elements.voiceButton.addEventListener("click", () => toast("当前使用内置普通话音频"));
+elements.voiceButton.addEventListener("click", () => toast("当前使用我的声音音频"));
 elements.voiceSelect.addEventListener("change", () => { state.voiceName = elements.voiceSelect.value; saveState(); });
 elements.rateSelect.addEventListener("change", () => { state.rate = Number(elements.rateSelect.value); elements.bookAudio.playbackRate = state.rate; saveState(); });
 elements.previewButton.addEventListener("click", () => {
@@ -371,6 +453,20 @@ elements.previewButton.addEventListener("click", () => {
   speechSynthesis.speak(sample);
 });
 elements.restartButton.addEventListener("click", restartAudio);
+elements.seekSlider.addEventListener("input", () => {
+  elements.progressText.textContent = `${Math.round(Number(elements.seekSlider.value) / 10)}%`;
+});
+elements.seekSlider.addEventListener("change", () => seekAudio(elements.seekSlider.value));
+elements.sectionSelect.addEventListener("change", () => {
+  const section = BOOK_SECTIONS[Number(elements.sectionSelect.value)];
+  if (section) seekAudio((section.time / totalAudioDuration()) * 1000, true);
+});
+elements.sectionMarkers.addEventListener("click", (event) => {
+  const marker = event.target.closest("[data-section-index]");
+  if (!marker) return;
+  const section = BOOK_SECTIONS[Number(marker.dataset.sectionIndex)];
+  if (section) seekAudio((section.time / totalAudioDuration()) * 1000, true);
+});
 elements.systemTab.addEventListener("click", () => switchTab(false));
 elements.customTab.addEventListener("click", () => switchTab(true));
 elements.consentCheck.addEventListener("change", () => { elements.recordButton.disabled = !elements.consentCheck.checked; });
@@ -378,9 +474,15 @@ elements.recordButton.addEventListener("click", toggleRecording);
 elements.createVoiceButton.addEventListener("click", createCustomVoice);
 elements.voiceDialog.addEventListener("close", () => { if (state.recorder?.state === "recording") state.recorder.stop(); });
 elements.bookAudio.addEventListener("timeupdate", () => {
+  if (state.pendingAudioTime === null || Math.abs(elements.bookAudio.currentTime - state.pendingAudioTime) < 2) state.pendingAudioTime = null;
   state.audioTime = elements.bookAudio.currentTime;
   updateAudioProgress();
   if (Math.floor(state.audioTime) % 5 === 0) saveState();
+});
+elements.bookAudio.addEventListener("playing", () => {
+  if (state.pendingAudioTime !== null && Number.isFinite(elements.bookAudio.duration) && state.pendingAudioTime < elements.bookAudio.duration) {
+    elements.bookAudio.currentTime = state.pendingAudioTime;
+  }
 });
 elements.bookAudio.addEventListener("ended", async () => {
   state.audioTrackIndex += 1;
@@ -394,7 +496,7 @@ elements.bookAudio.addEventListener("ended", async () => {
     saveState();
     return;
   }
-  loadAudioTrack(0);
+  await loadAudioTrack(0);
   saveState();
   await startAudio();
 });
